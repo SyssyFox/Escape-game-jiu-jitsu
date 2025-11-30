@@ -1,0 +1,232 @@
+<!--
+Interactive Sliding Puzzle (3x3) for an escape-game
+Theme: Jiu-Jitsu / Sports de combat
+
+How to use:
+- Open this HTML file in a browser.
+- Click "Upload Image" to use your own Jiu-Jitsu image (or leave default background).
+- Click "Shuffle" to scramble tiles. Move tiles by clicking them.
+- When the puzzle is solved the secret code appears (modifiable below).
+
+Customize:
+- Change const SECRET_CODE at line ~25 to set the code shown when solved.
+- Change grid size (N) to 4 for a 4x4 puzzle, but styling adjustments may be needed.
+-->
+
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Puzzle Jiu-Jitsu — Escape Game</title>
+  <style>
+    :root{--bg:#0f1724;--accent:#ef4444;--muted:#94a3b8}
+    body{background:linear-gradient(180deg,#071029 0%, #0b1220 100%);color:#e6eef8;font-family:Inter, system-ui, Arial, sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
+    .container{width:980px;max-width:96%;display:grid;grid-template-columns:360px 1fr;gap:24px;align-items:start}
+    .panel{background:rgba(255,255,255,0.03);padding:18px;border-radius:12px;box-shadow:0 6px 18px rgba(2,6,23,0.6)}
+    h1{margin:0 0 10px;font-size:20px}
+    p.small{color:var(--muted);margin:6px 0 14px}
+    .controls{display:flex;gap:8px;flex-wrap:wrap}
+    button, input[type=file]{background:transparent;border:1px solid rgba(255,255,255,0.08);padding:8px 12px;border-radius:8px;color:inherit;cursor:pointer}
+    button.primary{background:var(--accent);border-color:transparent;color:#081224}
+    .board-wrap{display:flex;flex-direction:column;align-items:center;gap:12px}
+    .board{width:520px;height:520px;max-width:100%;aspect-ratio:1;display:grid;border-radius:10px;overflow:hidden;background:#060814}
+    /* tile styles */
+    .tile{display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;color:rgba(255,255,255,0.85);user-select:none;border:1px solid rgba(0,0,0,0.2);box-sizing:border-box;background-size:300% 300%;background-position:center;transition:transform .18s cubic-bezier(.2,.9,.2,1),opacity .12s}
+    .tile.empty{background:transparent;border:none;opacity:0}
+    .meta{display:flex;flex-direction:column;gap:10px}
+    .info{display:flex;gap:12px;align-items:center}
+    .code{background:rgba(0,0,0,0.35);padding:10px 12px;border-radius:8px;font-weight:700}
+    .footer{margin-top:12px;color:var(--muted);font-size:13px}
+    .hint{background:linear-gradient(90deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));padding:8px;border-radius:8px}
+    .success-overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:linear-gradient(180deg, rgba(1,10,18,0.6), rgba(2,6,23,0.85));z-index:40}
+    .success-card{background:#071129;padding:28px;border-radius:12px;border:1px solid rgba(255,255,255,0.04);text-align:center}
+    .secret{font-size:28px;font-weight:800;color:var(--accent);letter-spacing:4px;margin-top:8px}
+    label.file{display:inline-flex;align-items:center;gap:8px}
+    @media (max-width:880px){.container{grid-template-columns:1fr;}}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="panel">
+      <h1>Puzzle Jiu-Jitsu — Escape Game</h1>
+      <p class="small">Thème : dojos, ceintures, soumissions. Utilise ce puzzle dans ton escape room : quand il est résolu, il révèle un code secret.</p>
+
+      <div class="controls">
+        <label class="file">📤 <input id="imageInput" type="file" accept="image/*"></label>
+        <button id="shuffleBtn" class="primary">Mélanger</button>
+        <button id="resetBtn">Réinitialiser</button>
+        <button id="hintBtn">Indice</button>
+      </div>
+
+      <div style="margin-top:14px" class="meta">
+        <div class="info">
+          <div class="code">Taille : <span id="sizeLabel">3 x 3</span></div>
+          <div class="code">Coup : <span id="moves">0</span></div>
+          <div style="flex:1"></div>
+          <div class="hint">Conseil : clique sur une tuile adjacente à la case vide pour la déplacer.</div>
+        </div>
+        <div class="footer">Personnalise le fond avec une image Jiu-Jitsu (logo, tatami, ceinture). Le code secret s'affichera quand tu auras remis l'image en ordre.</div>
+      </div>
+    </div>
+
+    <div class="panel board-wrap">
+      <div id="board" class="board" aria-label="Puzzle board"></div>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:8px">
+        <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="showNumbers" checked> Afficher numéros</label>
+        <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="snapAnim" checked> Animations</label>
+      </div>
+    </div>
+  </div>
+
+  <div id="success" class="success-overlay"><div class="success-card">
+    <h2>Félicitations — Puzzle résolu !</h2>
+    <div>Voici le code secret pour ton escape game :</div>
+    <div id="secretCode" class="secret">----</div>
+    <div style="margin-top:12px"><button id="closeSuccess">Fermer</button></div>
+  </div></div>
+
+  <script>
+    // CONFIG
+    const N = 3; // grid size (N x N). Change to 4 for 4x4
+    const SECRET_CODE = '1436'; // <-- change the code revealed when solved
+
+    // STATE
+    let board = []; // array of numbers 1..N*N-1 and 0 for empty
+    let emptyIndex = -1;
+    let moves = 0;
+    let bgImage = null; // Image object or null
+
+    const boardEl = document.getElementById('board');
+    const movesEl = document.getElementById('moves');
+    const sizeLabel = document.getElementById('sizeLabel');
+    const successEl = document.getElementById('success');
+    const secretEl = document.getElementById('secretCode');
+
+    sizeLabel.textContent = `${N} x ${N}`;
+
+    function initBoard() {
+      board = [];
+      for (let i=1;i<=N*N-1;i++) board.push(i);
+      board.push(0);
+      emptyIndex = board.length-1;
+      moves = 0;
+      movesEl.textContent = moves;
+    }
+
+    function shuffleBoard(times=200) {
+      // perform random valid moves to ensure solvability
+      for (let k=0;k<times;k++){
+        const neighbors = getNeighbors(emptyIndex);
+        const pick = neighbors[Math.floor(Math.random()*neighbors.length)];
+        swapIndices(emptyIndex, pick);
+        emptyIndex = pick;
+      }
+      moves = 0;
+      movesEl.textContent = moves;
+      render();
+    }
+
+    function getNeighbors(idx){
+      const r = Math.floor(idx/N), c = idx%N;
+      const arr=[];
+      if(r>0) arr.push(idx-N);
+      if(r<N-1) arr.push(idx+N);
+      if(c>0) arr.push(idx-1);
+      if(c<N-1) arr.push(idx+1);
+      return arr;
+    }
+
+    function swapIndices(i,j){[board[i],board[j]]=[board[j],board[i]]}
+
+    function render(){
+      boardEl.innerHTML='';
+      boardEl.style.gridTemplateColumns = `repeat(${N},1fr)`;
+      boardEl.style.gridTemplateRows = `repeat(${N},1fr)`;
+      const tileSize = 100 / N;
+      for(let i=0;i<board.length;i++){
+        const val = board[i];
+        const tile = document.createElement('div');
+        tile.className = 'tile';
+        if(val===0) tile.classList.add('empty');
+        if(document.getElementById('showNumbers').checked && val!==0) tile.textContent = val;
+
+        // background cropping if bgImage set
+        if(bgImage && val!==0){
+          const partIndex = val-1;
+          const sx = partIndex % N;
+          const sy = Math.floor(partIndex / N);
+          // set background using CSS with background-position
+          tile.style.backgroundImage = `url(${bgImage.src})`;
+          tile.style.backgroundSize = `${N*100}% ${N*100}%`;
+          tile.style.backgroundPosition = `${(sx/(N-1))*100}% ${(sy/(N-1))*100}%`;
+          tile.style.color = 'transparent';
+        } else if(bgImage && val===0){
+          tile.style.background = 'transparent';
+        } else {
+          // fallback themed colors
+          const colors = ['#0ea5a4','#ef4444','#f59e0b','#60a5fa','#a78bfa','#34d399','#fb7185','#f97316','#10b981'];
+          tile.style.background = colors[(val-1)%colors.length];
+        }
+
+        tile.style.cursor = val===0 ? 'default' : 'pointer';
+        tile.addEventListener('click',()=>onTileClick(i));
+        boardEl.appendChild(tile);
+      }
+    }
+
+    function onTileClick(i){
+      const neighbors = getNeighbors(i);
+      if(neighbors.includes(emptyIndex)){
+        swapIndices(i, emptyIndex);
+        emptyIndex = i;
+        moves++;
+        movesEl.textContent = moves;
+        render();
+        if(checkSolved()) showSuccess();
+      }
+    }
+
+    function checkSolved(){
+      for(let i=0;i<board.length-1;i++) if(board[i]!==i+1) return false;
+      return board[board.length-1]===0;
+    }
+
+    function showSuccess(){
+      secretEl.textContent = SECRET_CODE;
+      successEl.style.display='flex';
+    }
+
+    // file upload for custom image
+    document.getElementById('imageInput').addEventListener('change', (e)=>{
+      const file = e.target.files[0];
+      if(!file) return;
+      const img = new Image();
+      img.onload = ()=>{ bgImage = img; render(); };
+      img.src = URL.createObjectURL(file);
+    });
+
+    document.getElementById('shuffleBtn').addEventListener('click', ()=>shuffleBoard(300));
+    document.getElementById('resetBtn').addEventListener('click', ()=>{initBoard();render();});
+    document.getElementById('hintBtn').addEventListener('click', ()=>alert('Indice : regarde la ceinture du Sensei — le chiffre final correspond au nombre de tours que tu trouves.'));
+    document.getElementById('closeSuccess').addEventListener('click', ()=>{successEl.style.display='none'});
+
+    document.getElementById('showNumbers').addEventListener('change',render);
+
+    // init
+    initBoard();
+    render();
+
+    // Optional: allow arrow keys to move
+    window.addEventListener('keydown',(e)=>{
+      const r = Math.floor(emptyIndex/N), c = emptyIndex%N;
+      let target = null;
+      if(e.key==='ArrowUp' && r < N-1) target = emptyIndex+N;
+      if(e.key==='ArrowDown' && r > 0) target = emptyIndex-N;
+      if(e.key==='ArrowLeft' && c < N-1) target = emptyIndex+1;
+      if(e.key==='ArrowRight' && c > 0) target = emptyIndex-1;
+      if(target!==null){ swapIndices(emptyIndex,target); emptyIndex = target; moves++; movesEl.textContent = moves; render(); if(checkSolved()) showSuccess(); }
+    });
+  </script>
+</body>
+</html>
